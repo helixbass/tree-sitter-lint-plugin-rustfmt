@@ -14,6 +14,8 @@ use tree_sitter_lint::{
     violation, Plugin, QueryMatchContext, Rule,
 };
 
+pub type ProvidedTypes<'a> = ();
+
 pub fn instantiate() -> Plugin {
     Plugin {
         name: "rustfmt".to_owned(),
