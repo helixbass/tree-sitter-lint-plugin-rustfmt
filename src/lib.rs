@@ -18,7 +18,6 @@ pub fn instantiate() -> Plugin {
     Plugin {
         name: "rustfmt".to_owned(),
         rules: vec![rustfmt_rule()],
-        event_emitter_factories: vec![],
     }
 }
 
