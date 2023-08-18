@@ -1,3 +1,5 @@
+#![allow(clippy::into_iter_on_ref)]
+
 use std::{
     io::Write,
     process::{Command, Stdio},
@@ -51,6 +53,7 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
     match context.file_run_context.file_contents {
         RopeOrSlice::Slice(slice) => {
             stdin.write_all(slice).expect("Failed to write to stdin");
+            drop(stdin);
         }
         RopeOrSlice::Rope(rope) => {
             rope.write_to(stdin).expect("Failed to write to stdin");
@@ -79,11 +82,12 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
     }
     assert_eq!(files_with_mismatches.len(), 1);
     let file_with_mismatches = files_with_mismatches.into_iter().next().unwrap();
-    assert_eq!(file_with_mismatches.name, "stdin");
+    assert_eq!(file_with_mismatches.name, "<stdin>");
 
     for mismatch in file_with_mismatches.mismatches {
         assert!(
-            mismatch.original.ends_with('\n') && mismatch.expected.ends_with('\n'),
+            (mismatch.original.is_empty() || mismatch.original.ends_with('\n'))
+                && (mismatch.expected.is_empty() || mismatch.expected.ends_with('\n')),
             "Looks like rustfmt is emitting entire lines?"
         );
 
@@ -100,7 +104,29 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
                     column: 0,
                 },
             },
-            RopeOrSlice::Slice(_) => unimplemented!(),
+            RopeOrSlice::Slice(slice) => {
+                let newline_offsets = get_newline_offsets(slice).collect::<Vec<_>>();
+                Range {
+                    start_byte: if mismatch.original_begin_line >= 2 {
+                        newline_offsets
+                            .get(mismatch.original_begin_line - 2)
+                            .map_or(slice.len(), |&newline_offset| newline_offset + 1)
+                    } else {
+                        0
+                    },
+                    end_byte: newline_offsets
+                        .get(mismatch.original_end_line - 1)
+                        .map_or(slice.len(), |&newline_offset| newline_offset + 1),
+                    start_point: Point {
+                        row: mismatch.original_begin_line - 1,
+                        column: 0,
+                    },
+                    end_point: Point {
+                        row: mismatch.original_end_line,
+                        column: 0,
+                    },
+                }
+            }
         };
         context.report(violation! {
             node => node.descendant_for_byte_range(range.start_byte, range.end_byte).unwrap(),
@@ -121,7 +147,7 @@ struct FileWithMismatches {
     mismatches: Vec<Mismatch>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Mismatch {
     original_begin_line: usize,
     original_end_line: usize,
@@ -131,4 +157,38 @@ struct Mismatch {
     expected_end_line: usize,
     original: String,
     expected: String,
+}
+
+fn get_newline_offsets(slice: &[u8]) -> impl Iterator<Item = usize> + '_ {
+    slice
+        .into_iter()
+        .copied()
+        .enumerate()
+        .filter_map(|(index, byte)| (byte == b'\n').then_some(index))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use tree_sitter_lint::{rule_tests, RuleTester};
+
+    #[test]
+    fn test_basic() {
+        RuleTester::run(
+            rustfmt_rule(),
+            rule_tests! {
+                valid => [
+                    "fn whee() {}\n",
+                ],
+                invalid => [
+                    {
+                        code => "fn whee( ) {}\n",
+                        output => "fn whee() {}\n",
+                        errors => 1,
+                    }
+                ]
+            },
+        );
+    }
 }
