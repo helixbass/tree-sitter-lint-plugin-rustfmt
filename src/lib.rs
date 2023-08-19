@@ -11,7 +11,7 @@ use tree_sitter_lint::{
     rule,
     tree_sitter::{Node, Point, Range},
     tree_sitter_grep::RopeOrSlice,
-    violation, Plugin, QueryMatchContext, Rule,
+    violation, Plugin, QueryMatchContext, Rule, RunKind,
 };
 
 pub type ProvidedTypes<'a> = ();
@@ -41,6 +41,10 @@ fn rustfmt_rule() -> Arc<dyn Rule> {
 
 // derived from https://github.com/oxidecomputer/rustfmt-wrapper/blob/main/src/lib.rs
 fn run_rustfmt(node: Node, context: &QueryMatchContext) {
+    if context.file_run_context.run_kind == RunKind::NonfixingForSlice {
+        return;
+    }
+
     let args = vec!["+nightly", "--unstable-features", "--emit", "json"];
     let mut command = Command::new("rustfmt")
         .args(args)
