@@ -2,11 +2,13 @@
 
 use std::{
     io::Write,
+    ops,
     process::{Command, Stdio},
     sync::Arc,
 };
 
-use serde::Deserialize;
+use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use tree_sitter_lint::{
     rule,
     tree_sitter::{Node, Point, Range},
@@ -41,11 +43,69 @@ fn rustfmt_rule() -> Arc<dyn Rule> {
 
 // derived from https://github.com/oxidecomputer/rustfmt-wrapper/blob/main/src/lib.rs
 fn run_rustfmt(node: Node, context: &QueryMatchContext) {
-    if context.file_run_context.run_kind == RunKind::NonfixingForSlice {
+    if matches!(
+        context.file_run_context.run_kind,
+        RunKind::NonfixingForSlice
+    ) {
         return;
     }
 
-    let args = vec!["+nightly", "--unstable-features", "--emit", "json"];
+    let line_ranges = match context.file_run_context.run_kind {
+        RunKind::FixingForSliceInitial { context }
+            if context.edits_since_last_fixing_run.is_some()
+                && context.last_fixing_run_violations.is_some() =>
+        {
+            let edits_since_last_fixing_run = context.edits_since_last_fixing_run.as_ref().unwrap();
+            Some(
+                edits_since_last_fixing_run
+                    .get_new_ranges()
+                    .into_iter()
+                    .map(|range| range.start_point.row..range.end_point.row)
+                    .chain(
+                        context
+                            .last_fixing_run_violations
+                            .as_ref()
+                            .unwrap()
+                            .iter()
+                            .map(|violation| {
+                                edits_since_last_fixing_run.get_new_line_range(
+                                    violation.range.start_byte..violation.range.end_byte,
+                                )
+                            }),
+                    )
+                    .collect_vec(),
+            )
+        }
+        RunKind::FixingForSliceFixingLoop {
+            all_violations_from_last_pass,
+            ..
+        } => Some(
+            all_violations_from_last_pass
+                .into_iter()
+                .map(|violation| violation.range.start_point.row..violation.range.end_point.row + 1)
+                .collect(),
+        ),
+        _ => None,
+    };
+
+    let mut args = vec![
+        "+nightly".to_owned(),
+        "--unstable-features".to_owned(),
+        "--emit".to_owned(),
+        "json".to_owned(),
+    ];
+    if let Some(line_ranges) = line_ranges {
+        args.push("--file-lines".to_owned());
+        args.push(
+            serde_json::to_string(
+                &line_ranges
+                    .into_iter()
+                    .map(|line_range| FileLineRange::new("stdin", line_range))
+                    .collect_vec(),
+            )
+            .unwrap(),
+        );
+    }
     let mut command = Command::new("rustfmt")
         .args(args)
         .stdin(Stdio::piped())
@@ -170,6 +230,21 @@ fn get_newline_offsets(slice: &[u8]) -> impl Iterator<Item = usize> + '_ {
         .copied()
         .enumerate()
         .filter_map(|(index, byte)| (byte == b'\n').then_some(index))
+}
+
+#[derive(Serialize)]
+struct FileLineRange {
+    file: &'static str,
+    range: (usize, usize),
+}
+
+impl FileLineRange {
+    fn new(file: &'static str, range: ops::Range<usize>) -> Self {
+        Self {
+            file,
+            range: (range.start, range.end),
+        }
+    }
 }
 
 #[cfg(test)]
