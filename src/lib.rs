@@ -60,7 +60,7 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
                 edits_since_last_fixing_run
                     .get_new_ranges()
                     .into_iter()
-                    .map(|range| range.start_point.row..range.end_point.row)
+                    .map(|range| range.start_point.row..range.end_point.row + 1)
                     .chain(
                         context
                             .last_fixing_run_violations
@@ -87,6 +87,18 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
         ),
         _ => None,
     };
+    // let mut out_log = std::fs::OpenOptions::new()
+    //     .write(true)
+    //     .append(true)
+    //     .create(true)
+    //     .open("/Users/jrosse/prj/tree-sitter-lint-plugin-rustfmt/out")
+    //     .unwrap();
+    // writeln!(
+    //     &mut out_log,
+    //     "line_ranges: {line_ranges:#?}, run kind: {:#?}",
+    //     context.file_run_context.run_kind
+    // )
+    // .unwrap();
 
     let mut args = vec![
         "+nightly".to_owned(),
