@@ -154,6 +154,11 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
     let files_with_mismatches: Vec<FileWithMismatches> =
         serde_json::from_str(std::str::from_utf8(&output.stdout).expect("Didn't get JSON output"))
             .expect("Couldn't deserialize JSON output");
+    // writeln!(
+    //     &mut out_log,
+    //     "files_with_mismatches: {files_with_mismatches:#?}",
+    // )
+    // .unwrap();
     if files_with_mismatches.is_empty() {
         return;
     }
@@ -169,42 +174,65 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
         );
 
         let range = match context.file_run_context.file_contents {
-            RopeOrSlice::Rope(rope) => Range {
-                start_byte: rope.line_to_byte(mismatch.original_begin_line - 1),
-                end_byte: rope.line_to_byte(mismatch.original_end_line),
-                start_point: Point {
+            RopeOrSlice::Rope(rope) => {
+                let start_byte = rope.line_to_byte(mismatch.original_begin_line - 1);
+                let start_point = Point {
                     row: mismatch.original_begin_line - 1,
                     column: 0,
-                },
-                end_point: Point {
-                    row: mismatch.original_end_line,
-                    column: 0,
-                },
-            },
+                };
+                Range {
+                    start_byte,
+                    end_byte: if mismatch.original.is_empty() {
+                        start_byte
+                    } else {
+                        rope.line_to_byte(mismatch.original_end_line)
+                    },
+                    start_point,
+                    end_point: if mismatch.original.is_empty() {
+                        start_point
+                    } else {
+                        Point {
+                            row: mismatch.original_end_line,
+                            column: 0,
+                        }
+                    },
+                }
+            }
             RopeOrSlice::Slice(slice) => {
                 let newline_offsets = get_newline_offsets(slice).collect::<Vec<_>>();
+                let start_byte = if mismatch.original_begin_line >= 2 {
+                    newline_offsets
+                        .get(mismatch.original_begin_line - 2)
+                        .map_or(slice.len(), |&newline_offset| newline_offset + 1)
+                } else {
+                    0
+                };
+                let start_point = Point {
+                    row: mismatch.original_begin_line - 1,
+                    column: 0,
+                };
                 Range {
-                    start_byte: if mismatch.original_begin_line >= 2 {
-                        newline_offsets
-                            .get(mismatch.original_begin_line - 2)
-                            .map_or(slice.len(), |&newline_offset| newline_offset + 1)
+                    start_byte,
+                    end_byte: if mismatch.original.is_empty() {
+                        start_byte
                     } else {
-                        0
+                        newline_offsets
+                            .get(mismatch.original_end_line - 1)
+                            .map_or(slice.len(), |&newline_offset| newline_offset + 1)
                     },
-                    end_byte: newline_offsets
-                        .get(mismatch.original_end_line - 1)
-                        .map_or(slice.len(), |&newline_offset| newline_offset + 1),
-                    start_point: Point {
-                        row: mismatch.original_begin_line - 1,
-                        column: 0,
-                    },
-                    end_point: Point {
-                        row: mismatch.original_end_line,
-                        column: 0,
+                    start_point,
+                    end_point: if mismatch.original.is_empty() {
+                        start_point
+                    } else {
+                        Point {
+                            row: mismatch.original_end_line,
+                            column: 0,
+                        }
                     },
                 }
             }
         };
+        // writeln!(&mut out_log, "mismatch: {mismatch:#?}, range: {range:#?}",).unwrap();
         context.report(violation! {
             node => node.descendant_for_byte_range(range.start_byte, range.end_byte).unwrap(),
             message_id => "unexpected_formatting",
@@ -218,7 +246,7 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct FileWithMismatches {
     name: String,
     mismatches: Vec<Mismatch>,
