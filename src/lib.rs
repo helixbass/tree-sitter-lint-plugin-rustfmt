@@ -78,11 +78,13 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
         }
         RunKind::FixingForSliceFixingLoop {
             all_violations_from_last_pass,
+            all_fixes_from_last_pass,
             ..
         } => Some(
             all_violations_from_last_pass
                 .into_iter()
                 .map(|violation| violation.range.start_point.row..violation.range.end_point.row + 1)
+                .chain(all_fixes_from_last_pass.into_iter().map(|(input_edit, _)| input_edit.start_position.row..input_edit.new_end_position.row + 1))
                 .collect(),
         ),
         _ => None,
