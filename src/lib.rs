@@ -93,11 +93,11 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
     //     .write(true)
     //     .append(true)
     //     .create(true)
-    //     .open("/Users/jrosse/prj/tree-sitter-lint-plugin-rustfmt/out")
+    //     .open("/Users/jrosse/prj/tree-sitter-lint/log")
     //     .unwrap();
     // writeln!(
     //     &mut out_log,
-    //     "line_ranges: {line_ranges:#?}, run kind: {:#?}",
+    //     "run_rustfmt() line_ranges: {line_ranges:#?}, run kind: {:#?}",
     //     context.file_run_context.run_kind
     // )
     // .unwrap();
@@ -158,7 +158,7 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
             .expect("Couldn't deserialize JSON output");
     // writeln!(
     //     &mut out_log,
-    //     "files_with_mismatches: {files_with_mismatches:#?}",
+    //     "run_rustfmt() files_with_mismatches: {files_with_mismatches:#?}",
     // )
     // .unwrap();
     if files_with_mismatches.is_empty() {
@@ -234,7 +234,7 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
                 }
             }
         };
-        // writeln!(&mut out_log, "mismatch: {mismatch:#?}, range: {range:#?}",).unwrap();
+        // writeln!(&mut out_log, "run_rustfmt() mismatch: {mismatch:#?}, range: {range:#?}",).unwrap();
         context.report(violation! {
             node => node.descendant_for_byte_range(range.start_byte, range.end_byte).unwrap(),
             message_id => "unexpected_formatting",
