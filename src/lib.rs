@@ -9,6 +9,7 @@ use std::{
 
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use tracing::trace;
 use tree_sitter_lint::{
     rule,
     tree_sitter::{Node, Point, Range},
@@ -89,18 +90,8 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
         ),
         _ => None,
     };
-    // let mut out_log = std::fs::OpenOptions::new()
-    //     .write(true)
-    //     .append(true)
-    //     .create(true)
-    //     .open("/Users/jrosse/prj/tree-sitter-lint/log")
-    //     .unwrap();
-    // writeln!(
-    //     &mut out_log,
-    //     "run_rustfmt() line_ranges: {line_ranges:#?}, run kind: {:#?}",
-    //     context.file_run_context.run_kind
-    // )
-    // .unwrap();
+
+    trace!(target: "rustfmt", ?line_ranges, run_kind = ?context.file_run_context.run_kind, "got line ranges");
 
     let mut args = vec![
         "+nightly".to_owned(),
@@ -120,6 +111,9 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
             .unwrap(),
         );
     }
+
+    trace!(target: "rustfmt", "launching command");
+
     let mut command = Command::new("rustfmt")
         .args(args)
         .stdin(Stdio::piped())
@@ -139,31 +133,46 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
         }
     }
 
+    trace!(target: "rustfmt", "wait for output");
+
     let output = match command.wait_with_output() {
         Ok(output) => output,
         Err(err) => {
+            trace!(target: "rustfmt", "Running rustfmt failed");
+
             eprintln!("Running rustfmt failed: {err}");
             return;
         }
     };
 
+    trace!(target: "rustfmt", "Got output");
+
     if !output.status.success() {
+        trace!(target: "rustfmt", "rustfmt returned an error");
+
         let err_str = String::from_utf8(output.stderr).expect("Couldn't parse stderr as utf8");
         eprintln!("rustfmt returned an error: {err_str}");
         return;
     }
 
+    trace!(target: "rustfmt", "Deserializing JSON output");
+
     let files_with_mismatches: Vec<FileWithMismatches> =
         serde_json::from_str(std::str::from_utf8(&output.stdout).expect("Didn't get JSON output"))
-            .expect("Couldn't deserialize JSON output");
-    // writeln!(
-    //     &mut out_log,
-    //     "run_rustfmt() files_with_mismatches: {files_with_mismatches:#?}",
-    // )
-    // .unwrap();
+            .unwrap_or_else(|_| {
+                trace!(target: "rustfmt", "Couldn't deserialize JSON output");
+
+                panic!("Couldn't deserialize JSON output");
+            });
+
     if files_with_mismatches.is_empty() {
+        trace!(target: "rustfmt", "No files with mismatches");
+
         return;
     }
+
+    trace!(target: "rustfmt", ?files_with_mismatches, "Found files with mismatches");
+
     assert_eq!(files_with_mismatches.len(), 1);
     let file_with_mismatches = files_with_mismatches.into_iter().next().unwrap();
     assert_eq!(file_with_mismatches.name, "<stdin>");
@@ -234,9 +243,12 @@ fn run_rustfmt(node: Node, context: &QueryMatchContext) {
                 }
             }
         };
-        // writeln!(&mut out_log, "run_rustfmt() mismatch: {mismatch:#?}, range: {range:#?}",).unwrap();
+
+        trace!(target: "rustfmt", ?mismatch, ?range, "Reporting mismatch");
+
         context.report(violation! {
             node => node.descendant_for_byte_range(range.start_byte, range.end_byte).unwrap(),
+            range => range,
             message_id => "unexpected_formatting",
             fix => |fixer| {
                 fixer.replace_text_range(
