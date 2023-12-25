@@ -14,16 +14,17 @@ use tree_sitter_lint::{
     rule,
     tree_sitter::{Node, Point, Range},
     tree_sitter_grep::RopeOrSlice,
-    violation, Plugin, QueryMatchContext, Rule, RunKind,
+    violation, Plugin, PluginBuilder, QueryMatchContext, Rule, RunKind,
 };
 
 pub type ProvidedTypes<'a> = ();
 
 pub fn instantiate() -> Plugin {
-    Plugin {
-        name: "rustfmt".to_owned(),
-        rules: vec![rustfmt_rule()],
-    }
+    PluginBuilder::default()
+        .name("rustfmt")
+        .rules(vec![rustfmt_rule()])
+        .build()
+        .unwrap()
 }
 
 fn rustfmt_rule() -> Arc<dyn Rule> {
